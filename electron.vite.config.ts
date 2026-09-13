@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
 
-import { readApplicationVersion } from "./scripts/version";
+import { readApplicationVersion, readApplicationVersionCode } from "./scripts/version";
 
 function contentSecurityPolicy(): Plugin {
   let development = false;
@@ -45,6 +45,7 @@ export default defineConfig({
   main: {
     define: {
       __APP_VERSION__: JSON.stringify(readApplicationVersion()),
+      __APP_VERSION_CODE__: JSON.stringify(readApplicationVersionCode()),
     },
     resolve: {
       alias: {

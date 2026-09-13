@@ -271,7 +271,6 @@ const bridge: DesktopBridge = {
     setGitHubToken: (value) => callResult(UPDATES_CALL, "setGitHubToken", value),
     downloadAndInstall: () => callResult(UPDATES_CALL, "downloadAndInstall"),
     installWithElevation: () => callResult(UPDATES_CALL, "installWithElevation"),
-    setTrack: (track) => callResult(UPDATES_CALL, "setTrack", track),
     setCheckUpdateEnabled: (value) =>
       callResult(UPDATES_CALL, "setCheckUpdateEnabled", value),
     setPrompted: () => callResult(UPDATES_CALL, "setPrompted"),

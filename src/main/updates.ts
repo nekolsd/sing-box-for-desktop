@@ -7,7 +7,6 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 
 import { app, BrowserWindow, ipcMain } from "electron";
-import { compare, gt, prerelease, valid } from "semver";
 
 import { InstallUpdateResult } from "../shared/gen/experimental/boxdd/desktop_service_pb";
 import { UPDATES_CALL, UPDATES_STATE_CHANGED } from "../shared/ipc";
@@ -16,15 +15,18 @@ import type {
   ProfilesResult,
   UpdateInstallResult,
   UpdatesState,
-  UpdateTrack,
 } from "../shared/ipc";
 import { applicationCacheDirectory } from "./appCache";
 import { parseBooleanPreference, Preference } from "./database";
 import { desktopService } from "./daemon";
 import { userAgent } from "./userAgent";
 
-const RELEASES_URL = "https://api.github.com/repos/SagerNet/sing-box/releases";
+const RELEASES_URL = "https://api.github.com/repos/nekolsd/sing-box-for-desktop/releases";
 const RELEASES_PER_PAGE = 100;
+// Every release carries this asset with its version code; a release is an
+// update when its version code is higher than the running build's, whatever
+// the version names look like.
+const VERSION_METADATA_ASSET_NAME = "SFW-version-metadata.json";
 const RELEASES_REQUEST_TIMEOUT_MILLISECONDS = 30_000;
 const EXIT_CODE_CANCELLED = 1223;
 const EXIT_CODE_LAUNCH_FAILED = 1224;
@@ -36,8 +38,6 @@ const WINDOWS_UPDATE_ARCHITECTURES: Partial<Record<NodeJS.Architecture, string[]
 };
 const updateArchitectureTokens = WINDOWS_UPDATE_ARCHITECTURES[process.arch];
 const UPDATES_SUPPORTED = process.platform === "win32" && updateArchitectureTokens !== undefined;
-const APP_IS_PRERELEASE = prerelease(__APP_VERSION__) !== null;
-
 function parseString(value: unknown): string {
   if (typeof value !== "string") {
     throw new Error("invalid string preference");
@@ -45,18 +45,6 @@ function parseString(value: unknown): string {
   return value;
 }
 
-function parseUpdateTrack(value: unknown): UpdateTrack {
-  if (value !== "stable" && value !== "beta") {
-    throw new Error("invalid update track preference");
-  }
-  return value;
-}
-
-const updateTrackPreference = new Preference<UpdateTrack>(
-  "update_track",
-  APP_IS_PRERELEASE ? "beta" : "stable",
-  parseUpdateTrack,
-);
 const checkUpdateEnabledPreference = new Preference(
   "check_update_enabled",
   false,
@@ -75,10 +63,6 @@ const lastShownUpdateVersionPreference = new Preference(
 );
 const githubTokenPreference = new Preference("github_token", "", parseString);
 
-function currentTrack(): UpdateTrack {
-  return updateTrackPreference.get();
-}
-
 const runtime = {
   info: null as AppUpdateInfo | null,
   checking: false,
@@ -90,7 +74,6 @@ const runtime = {
 function updatesState(): UpdatesState {
   return {
     supported: UPDATES_SUPPORTED,
-    track: currentTrack(),
     checkUpdateEnabled: checkUpdateEnabledPreference.get(),
     prompted: updateCheckPromptedPreference.get(),
     info: runtime.info,
@@ -110,12 +93,8 @@ function broadcastState(): void {
   }
 }
 
-function shouldIncludeVersion(version: string, track: UpdateTrack): boolean {
-  const normalizedVersion = valid(version);
-  if (normalizedVersion === null) {
-    return false;
-  }
-  return gt(normalizedVersion, __APP_VERSION__) || (track === "stable" && APP_IS_PRERELEASE);
+function isUpdateVersionCode(versionCode: number): boolean {
+  return versionCode > __APP_VERSION_CODE__;
 }
 
 function setUpdateInfo(info: AppUpdateInfo | null): void {
@@ -141,6 +120,7 @@ function parseCachedUpdateInfo(cached: string): AppUpdateInfo | null {
   }
   const candidate = value as Record<string, unknown>;
   if (
+    typeof candidate.versionCode !== "number" ||
     typeof candidate.versionName !== "string" ||
     typeof candidate.releaseURL !== "string" ||
     typeof candidate.downloadURL !== "string" ||
@@ -151,6 +131,7 @@ function parseCachedUpdateInfo(cached: string): AppUpdateInfo | null {
     return null;
   }
   return {
+    versionCode: candidate.versionCode,
     versionName: candidate.versionName,
     releaseURL: candidate.releaseURL,
     downloadURL: candidate.downloadURL,
@@ -166,12 +147,7 @@ function loadCachedUpdate(): boolean {
     return false;
   }
   const info = parseCachedUpdateInfo(cached);
-  const track = currentTrack();
-  if (
-    info === null ||
-    (track === "stable" && info.isPrerelease) ||
-    !shouldIncludeVersion(info.versionName, track)
-  ) {
+  if (info === null || !isUpdateVersionCode(info.versionCode)) {
     setUpdateInfo(null);
     return false;
   }
@@ -194,8 +170,12 @@ interface GitHubRelease {
   assets: GitHubAsset[];
 }
 
-async function fetchReleases(track: UpdateTrack, githubToken: string): Promise<GitHubRelease[]> {
-  const releases: GitHubRelease[] = [];
+interface VersionMetadata {
+  version_code: number;
+  version_name: string;
+}
+
+function githubHeaders(githubToken: string): Headers {
   const headers = new Headers({
     "Accept": "application/vnd.github+json",
     "User-Agent": userAgent(),
@@ -204,25 +184,53 @@ async function fetchReleases(track: UpdateTrack, githubToken: string): Promise<G
   if (token !== "") {
     headers.set("Authorization", `token ${token}`);
   }
-  let page = 1;
-  for (;;) {
-    const response = await fetch(
-      `${RELEASES_URL}?per_page=${RELEASES_PER_PAGE}&page=${page}`,
-      {
-        headers,
-        signal: AbortSignal.timeout(RELEASES_REQUEST_TIMEOUT_MILLISECONDS),
-      },
-    );
-    if (!response.ok) {
-      throw new Error(`fetch releases: HTTP ${response.status}`);
-    }
-    const pageReleases = (await response.json()) as GitHubRelease[];
-    releases.push(...pageReleases);
-    if (track !== "stable" || pageReleases.length < RELEASES_PER_PAGE) {
-      return releases;
-    }
-    page += 1;
+  return headers;
+}
+
+async function fetchJSON(url: string, headers: Headers): Promise<unknown> {
+  const response = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(RELEASES_REQUEST_TIMEOUT_MILLISECONDS),
+  });
+  if (!response.ok) {
+    throw new Error(`fetch ${url}: HTTP ${response.status}`);
   }
+  return response.json();
+}
+
+async function fetchReleases(headers: Headers): Promise<GitHubRelease[]> {
+  return (await fetchJSON(
+    `${RELEASES_URL}?per_page=${RELEASES_PER_PAGE}`,
+    headers,
+  )) as GitHubRelease[];
+}
+
+async function fetchVersionMetadata(
+  release: GitHubRelease,
+  headers: Headers,
+): Promise<VersionMetadata | null> {
+  const asset = release.assets.find((candidate) => candidate.name === VERSION_METADATA_ASSET_NAME);
+  if (asset === undefined) {
+    return null;
+  }
+  let value: unknown;
+  try {
+    value = await fetchJSON(asset.browser_download_url, headers);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.version_code !== "number" ||
+    !Number.isInteger(candidate.version_code) ||
+    typeof candidate.version_name !== "string"
+  ) {
+    return null;
+  }
+  return { version_code: candidate.version_code, version_name: candidate.version_name };
 }
 
 function findWindowsAsset(assets: GitHubAsset[]): GitHubAsset | null {
@@ -251,11 +259,10 @@ async function checkForUpdate(): Promise<AppUpdateInfo | null> {
   runtime.checking = true;
   broadcastState();
   try {
-    const track = currentTrack();
-    const releases = await fetchReleases(track, githubTokenPreference.get());
-    if (currentTrack() !== track) {
-      return runtime.info;
-    }
+    const headers = githubHeaders(githubTokenPreference.get());
+    const releases = await fetchReleases(headers);
+    // The release with the highest version code above the running build's is
+    // the update. Version names and the prerelease flag are not consulted.
     let best: AppUpdateInfo | null = null;
     for (const release of releases) {
       if (release.draft) {
@@ -265,20 +272,16 @@ async function checkForUpdate(): Promise<AppUpdateInfo | null> {
       if (asset === null) {
         continue;
       }
-      if (track === "stable" && release.prerelease) {
+      const metadata = await fetchVersionMetadata(release, headers);
+      if (metadata === null || !isUpdateVersionCode(metadata.version_code)) {
         continue;
       }
-      const version = release.tag_name.startsWith("v")
-        ? release.tag_name.slice(1)
-        : release.tag_name;
-      if (!shouldIncludeVersion(version, track)) {
-        continue;
-      }
-      if (best !== null && compare(version, best.versionName) <= 0) {
+      if (best !== null && metadata.version_code <= best.versionCode) {
         continue;
       }
       best = {
-        versionName: version,
+        versionCode: metadata.version_code,
+        versionName: metadata.version_name,
         releaseURL: release.html_url,
         downloadURL: asset.browser_download_url,
         releaseNotes: release.body ?? "",
@@ -490,16 +493,6 @@ const handlers: Record<string, (...callArguments: never[]) => Promise<unknown>> 
   downloadAndInstall,
 
   installWithElevation,
-
-  async setTrack(track: UpdateTrack): Promise<void> {
-    const parsed = parseUpdateTrack(track);
-    updateTrackPreference.set(parsed);
-    if (runtime.info !== null && parsed === "stable" && runtime.info.isPrerelease) {
-      setUpdateInfo(null);
-    } else {
-      broadcastState();
-    }
-  },
 
   async setCheckUpdateEnabled(value: boolean): Promise<void> {
     checkUpdateEnabledPreference.set(parseBooleanPreference(value));

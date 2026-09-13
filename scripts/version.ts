@@ -6,6 +6,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 
 interface VersionMetadata {
   version?: unknown;
+  version_code?: unknown;
   go_version?: unknown;
 }
 
@@ -21,6 +22,20 @@ export function readApplicationVersion(): string {
     throw new Error("version.json contains no application version");
   }
   return versionMetadata.version;
+}
+
+// The version code orders releases for the in-app updater. Bump it for every
+// release, including rebuilds of the same upstream version.
+export function readApplicationVersionCode(): number {
+  const versionMetadata = readVersionMetadata();
+  if (
+    typeof versionMetadata.version_code !== "number" ||
+    !Number.isInteger(versionMetadata.version_code) ||
+    versionMetadata.version_code <= 0
+  ) {
+    throw new Error("version.json contains no valid application version code");
+  }
+  return versionMetadata.version_code;
 }
 
 export function readGoVersion(): string {
