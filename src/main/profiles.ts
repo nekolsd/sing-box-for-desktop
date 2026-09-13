@@ -24,6 +24,12 @@ import { daemonState } from "./state";
 
 const MINIMUM_UPDATE_INTERVAL_MINUTES = 15;
 const DEFAULT_UPDATE_INTERVAL_MINUTES = 60;
+// A failed automatic update is retried with a delay that doubles on every
+// consecutive failure, capped at the profile's own interval, so an unreachable
+// or blocked subscription URL is not requested in a loop.
+const INITIAL_RETRY_DELAY_MILLISECONDS = 60_000;
+// setTimeout cannot wait longer than this; wake up and re-check instead.
+const MAXIMUM_TIMER_DELAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 const REMOTE_REQUEST_TIMEOUT_MILLISECONDS = 30_000;
 const MAXIMUM_REMOTE_PROFILE_BYTES = 16 * 1024 * 1024;
 const MAXIMUM_REMOTE_ERROR_BYTES = 64 * 1024;
@@ -395,6 +401,7 @@ function updateRemoteProfile(id: string): Promise<void> {
     settingsDatabase()
       .prepare("UPDATE profiles SET last_updated = ? WHERE id = ?")
       .run(Date.now(), profile.id);
+    updateAttempts.delete(profile.id);
     notifyChanged();
   });
 }
@@ -420,21 +427,47 @@ export async function startSelectedProfile(): Promise<void> {
 
 let updateTimer: NodeJS.Timeout | null = null;
 
+interface UpdateAttempt {
+  lastAttempt: number;
+  failures: number;
+}
+
+const updateAttempts = new Map<string, UpdateAttempt>();
+
+function retryDelay(failures: number, intervalMs: number): number {
+  const delay = INITIAL_RETRY_DELAY_MILLISECONDS * 2 ** Math.min(failures - 1, 20);
+  return Math.min(delay, intervalMs);
+}
+
+function nextAutoUpdateTime(profile: ProfileMetadata): number {
+  const intervalMs = intervalOrDefault(profile) * 60 * 1000;
+  const scheduled = (profile.lastUpdated ?? 0) + intervalMs;
+  const attempt = updateAttempts.get(profile.id);
+  if (attempt === undefined || attempt.failures === 0) {
+    return scheduled;
+  }
+  return Math.max(scheduled, attempt.lastAttempt + retryDelay(attempt.failures, intervalMs));
+}
+
 async function runDueProfileUpdates(): Promise<void> {
   const now = Date.now();
-  const dueProfiles = listProfiles().filter((profile) => {
-    if (profile.type !== "remote" || !profile.autoUpdate) {
-      return false;
-    }
-    const intervalMs = intervalOrDefault(profile) * 60 * 1000;
-    return profile.lastUpdated === undefined || profile.lastUpdated <= now - intervalMs;
-  });
+  const dueProfiles = listProfiles().filter(
+    (profile) =>
+      profile.type === "remote" && profile.autoUpdate && nextAutoUpdateTime(profile) <= now,
+  );
   await Promise.all(
     dueProfiles.map(async (profile) => {
+      const attempt = updateAttempts.get(profile.id) ?? { lastAttempt: 0, failures: 0 };
+      attempt.lastAttempt = Date.now();
+      updateAttempts.set(profile.id, attempt);
       try {
         await updateRemoteProfile(profile.id);
       } catch (error) {
-        console.error(`update profile ${profile.name}:`, error);
+        attempt.failures += 1;
+        console.error(
+          `update profile ${profile.name} (failure ${attempt.failures}, next retry in ${Math.round(retryDelay(attempt.failures, intervalOrDefault(profile) * 60 * 1000) / 1000)}s):`,
+          error,
+        );
       }
     }),
   );
@@ -451,18 +484,16 @@ function reconfigureAutoUpdate(): void {
   if (enabled.length === 0) {
     return;
   }
-  const intervalMs = Math.min(...enabled.map(intervalOrDefault)) * 60 * 1000;
-  const earliest = Math.max(
-    Date.now(),
-    Math.min(
-      ...enabled.map((profile) => (profile.lastUpdated ?? 0) + intervalMs),
-    ),
+  const now = Date.now();
+  const earliest = Math.max(now, Math.min(...enabled.map(nextAutoUpdateTime)));
+  updateTimer = setTimeout(
+    () => {
+      void runDueProfileUpdates().finally(() => {
+        reconfigureAutoUpdate();
+      });
+    },
+    Math.min(earliest - now, MAXIMUM_TIMER_DELAY_MILLISECONDS),
   );
-  updateTimer = setTimeout(() => {
-    void runDueProfileUpdates().finally(() => {
-      reconfigureAutoUpdate();
-    });
-  }, earliest - Date.now());
 }
 
 const handlers: Record<
@@ -521,6 +552,7 @@ const handlers: Record<
             .run(patch.name, id);
         }
         if (patch.remoteUrl !== undefined && profile.type === "remote") {
+          updateAttempts.delete(id);
           store
             .prepare(
               "UPDATE profiles SET remote_url = ?, last_updated = ? WHERE id = ?",
@@ -564,6 +596,7 @@ const handlers: Record<
     await runProfileOperation(id, async () => {
       findProfile(id);
       const store = settingsDatabase();
+      updateAttempts.delete(id);
       store.transaction(() => {
         store.prepare("DELETE FROM profiles WHERE id = ?").run(id);
         if (selectedProfileId() === id) {
