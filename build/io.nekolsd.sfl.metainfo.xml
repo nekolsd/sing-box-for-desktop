@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.nekohasekai.sfl</id>
+  <id>io.nekolsd.sfl</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>sing-box</name>
+  <name>sing-box-nekolsd</name>
   <summary>The universal proxy platform</summary>
   <description>
     <p>Linux client for sing-box, the universal proxy platform</p>
@@ -11,16 +11,16 @@
   <keywords>
     <keyword>network</keyword>
   </keywords>
-  <launchable type="desktop-id">sing-box.desktop</launchable>
-  <developer id="io.nekohasekai">
-    <name>nekohasekai</name>
+  <launchable type="desktop-id">sing-box-nekolsd.desktop</launchable>
+  <developer id="io.nekolsd">
+    <name>nekolsd</name>
   </developer>
-  <url type="homepage">https://sing-box.sagernet.org/</url>
-  <url type="bugtracker">https://github.com/SagerNet/sing-box/issues</url>
-  <url type="vcs-browser">https://github.com/SagerNet/sing-box</url>
+  <url type="homepage">https://github.com/nekolsd/sing-box-for-desktop</url>
+  <url type="bugtracker">https://github.com/nekolsd/sing-box-for-desktop/issues</url>
+  <url type="vcs-browser">https://github.com/nekolsd/sing-box-for-desktop</url>
   <provides>
-    <binary>sing-box</binary>
-    <mediatype>application/x-sing-box-profile</mediatype>
+    <binary>sing-box-nekolsd</binary>
+    <mediatype>application/x-sing-box-nekolsd-profile</mediatype>
   </provides>
   <supports>
     <control>pointing</control>

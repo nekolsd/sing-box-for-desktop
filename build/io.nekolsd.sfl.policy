@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "https://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
-  <vendor>SagerNet</vendor>
-  <vendor_url>https://sing-box.sagernet.org/</vendor_url>
-  <action id="io.nekohasekai.sfl.take-over-service">
+  <vendor>nekolsd</vendor>
+  <vendor_url>https://github.com/nekolsd/sing-box-for-desktop</vendor_url>
+  <action id="io.nekolsd.sfl.take-over-service">
     <description>Take over the sing-box service from another user</description>
     <message>Authentication is required to stop another user's sing-box service.</message>
     <defaults>

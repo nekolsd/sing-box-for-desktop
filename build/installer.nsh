@@ -4,8 +4,8 @@ SetFont "Segoe UI" 9
 
 !include WinMessages.nsh
 
-!define INSTALLATION_LAYOUT_REGISTRY_KEY "Software\SagerNet\sing-box"
-!define TAILDROP_VERB_REGISTRY_KEY "Software\Classes\*\shell\Taildrop"
+!define INSTALLATION_LAYOUT_REGISTRY_KEY "Software\nekolsd\sing-box-nekolsd"
+!define TAILDROP_VERB_REGISTRY_KEY "Software\Classes\*\shell\Taildrop-nekolsd"
 
 !ifndef BUILD_UNINSTALLER
   !include StrContains.nsh
@@ -60,7 +60,6 @@ SetFont "Segoe UI" 9
   Var installationDirectoryBrowseButton
   Var migrateExistingData
   Var migrateExistingDataCheckbox
-  Var migrateLegacyApplicationData
   Var dataTransitionStatePath
   Var hasExistingInstallation
   Var hasInstallationLayout
@@ -782,7 +781,6 @@ FunctionEnd
   StrCpy $reinstallExistingInstallation 0
   StrCpy $customInstallation 0
   StrCpy $migrateExistingData ${BST_CHECKED}
-  StrCpy $migrateLegacyApplicationData 0
   StrCpy $applicationDataDirectory ""
   StrCpy $previousApplicationDataDirectory ""
   StrCpy $fixedApplicationDataDirectory ""
@@ -794,7 +792,7 @@ FunctionEnd
   StrCpy $installationFailureTimer ""
   StrCpy $dataMigrationPrepared 0
   SetShellVarContext all
-  StrCpy $daemonDataDirectory "$APPDATA\sing-box-daemon"
+  StrCpy $daemonDataDirectory "$APPDATA\sing-box-daemon-nekolsd"
   StrCpy $0 0
   ReadRegDWORD $0 HKLM "${INSTALLATION_LAYOUT_REGISTRY_KEY}" "LayoutVersion"
   ${if} $0 == 2
@@ -808,23 +806,19 @@ FunctionEnd
   ${if} $0 != ""
     StrCpy $hasExistingInstallation 1
   ${endif}
-  ${if} $hasExistingInstallation == 1
-  ${andif} $hasInstallationLayout == 0
-    StrCpy $migrateLegacyApplicationData 1
-  ${endif}
   ${if} $installationID == ""
     System::Call 'ole32::CoCreateGuid(g .s)'
     Pop $installationID
   ${endif}
   ${if} $daemonDataDirectory == ""
-    StrCpy $daemonDataDirectory "$APPDATA\sing-box-daemon"
+    StrCpy $daemonDataDirectory "$APPDATA\sing-box-daemon-nekolsd"
   ${endif}
   StrCpy $previousApplicationDataDirectory $applicationDataDirectory
   StrCpy $previousDaemonDataDirectory $daemonDataDirectory
   StrCpy $previousInstallationID $installationID
   ${if} $hasExistingInstallation == 0
     ${if} $applicationDataDirectory == ""
-      StrCpy $applicationDataDirectory "$APPDATA\sing-box"
+      StrCpy $applicationDataDirectory "$APPDATA\sing-box-nekolsd"
     ${endif}
     ${GetParameters} $R0
     ClearErrors
@@ -845,20 +839,20 @@ FunctionEnd
     ${endif}
   ${endif}
   ${if} $applicationDataDirectory == ""
-    StrCpy $fixedApplicationDataDirectory "$APPDATA\sing-box"
+    StrCpy $fixedApplicationDataDirectory "$APPDATA\sing-box-nekolsd"
     StrCpy $userIndependentApplicationData ${BST_CHECKED}
   ${else}
     StrCpy $fixedApplicationDataDirectory $applicationDataDirectory
     StrCpy $userIndependentApplicationData ${BST_UNCHECKED}
   ${endif}
   SetShellVarContext current
-  StrCpy $userApplicationDataDirectory "$APPDATA\sing-box"
+  StrCpy $userApplicationDataDirectory "$APPDATA\sing-box-nekolsd"
   SetShellVarContext all
   StrCpy $defaultInstallationDirectory $INSTDIR
   StrCpy $defaultApplicationDataDirectory $applicationDataDirectory
   StrCpy $defaultDaemonDataDirectory $daemonDataDirectory
   StrCpy $workingDirectory $daemonDataDirectory
-  StrCpy $dataTransitionStatePath "$APPDATA\sing-box-installer\data-transition.json"
+  StrCpy $dataTransitionStatePath "$APPDATA\sing-box-nekolsd-installer\data-transition.json"
   InitPluginsDir
   File /oname=$PLUGINSDIR\installer-preflight.ps1 "${BUILD_RESOURCES_DIR}\installer-preflight.ps1"
   File /oname=$PLUGINSDIR\installer-service.ps1 "${BUILD_RESOURCES_DIR}\installer-service.ps1"
@@ -985,11 +979,7 @@ FunctionEnd
 !macroend
 
 !macro executeDataTransition OPERATION
-  StrCpy $3 ""
-  ${if} $migrateLegacyApplicationData == 1
-    StrCpy $3 "-MigrateLegacyApplicationData"
-  ${endif}
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-data.ps1" -Operation ${OPERATION} -StatePath "$dataTransitionStatePath" -PreviousApplicationDataDirectory "$previousApplicationDataDirectory" -ApplicationDataDirectory "$applicationDataDirectory" -PreviousDaemonDataDirectory "$previousDaemonDataDirectory" -DaemonDataDirectory "$daemonDataDirectory" -PreviousInstallationID "$previousInstallationID" -InstallationID "$installationID" $3'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-data.ps1" -Operation ${OPERATION} -StatePath "$dataTransitionStatePath" -PreviousApplicationDataDirectory "$previousApplicationDataDirectory" -ApplicationDataDirectory "$applicationDataDirectory" -PreviousDaemonDataDirectory "$previousDaemonDataDirectory" -DaemonDataDirectory "$daemonDataDirectory" -PreviousInstallationID "$previousInstallationID" -InstallationID "$installationID"'
   Pop $1
   Pop $0
 !macroend
@@ -1631,15 +1621,13 @@ FunctionEnd
     ${endif}
   ${endif}
   DetailPrint "$(stoppingService)"
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "if (Get-Service -Name sing-box-daemon -ErrorAction SilentlyContinue) { Stop-Service -Name sing-box-daemon -Force -ErrorAction Stop; (Get-Service -Name sing-box-daemon).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(10)) }"'
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "if (Get-Service -Name sing-box-daemon-nekolsd -ErrorAction SilentlyContinue) { Stop-Service -Name sing-box-daemon-nekolsd -Force -ErrorAction Stop; (Get-Service -Name sing-box-daemon-nekolsd).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(10)) }"'
   Pop $1
   ${if} $1 != 0
     Abort "$(stopServiceFailed)"
   ${endif}
   StrCpy $2 0
   ${if} $reinstallExistingInstallation == 1
-    StrCpy $2 1
-  ${elseif} $migrateLegacyApplicationData == 1
     StrCpy $2 1
   ${elseif} $hasExistingInstallation == 0
   ${andif} $hasInstallationLayout == 1
@@ -1826,7 +1814,7 @@ FunctionEnd
   StrCpy $applicationDataDirectory ""
   StrCpy $installationID ""
   SetShellVarContext all
-  StrCpy $daemonDataDirectory "$APPDATA\sing-box-daemon"
+  StrCpy $daemonDataDirectory "$APPDATA\sing-box-daemon-nekolsd"
   StrCpy $0 0
   ReadRegDWORD $0 HKLM "${INSTALLATION_LAYOUT_REGISTRY_KEY}" "LayoutVersion"
   ${if} $0 == 2
@@ -1866,7 +1854,7 @@ FunctionEnd
       ${endif}
       ${if} $applicationDataDirectory == ""
         SetShellVarContext current
-        RMDir /r "$APPDATA\sing-box"
+        RMDir /r "$APPDATA\sing-box-nekolsd"
         SetShellVarContext all
       ${endif}
       !insertmacro setInstallationLayoutRegistryView

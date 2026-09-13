@@ -275,11 +275,23 @@ async function insertProfile(
   return profile;
 }
 
+// Profile files use the same format as other sing-box clients; the fork
+// registers .nbpf so it can coexist with the original client but still
+// imports .bpf files shared from elsewhere.
+const PROFILE_FILE_EXTENSION = ".nbpf";
+const PROFILE_FILE_EXTENSIONS = [PROFILE_FILE_EXTENSION, ".bpf"];
+
+function profileFileExtension(fileName: string): string | null {
+  const lowerCased = fileName.toLowerCase();
+  return PROFILE_FILE_EXTENSIONS.find((extension) => lowerCased.endsWith(extension)) ?? null;
+}
+
 async function importProfileData(
   fileName: string,
   data: Uint8Array,
 ): Promise<void> {
-  if (fileName.toLowerCase().endsWith(".bpf")) {
+  const profileExtension = profileFileExtension(fileName);
+  if (profileExtension !== null) {
     const content = await applicationService.decodeProfile({ data });
     await checkConfig(content.config);
     const remote = content.type === ProfileContent_Type.REMOTE;
@@ -294,7 +306,7 @@ async function importProfileData(
     await insertProfile(
       {
         id: crypto.randomUUID(),
-        name: uniqueName(content.name || basename(fileName, ".bpf")),
+        name: uniqueName(content.name || basename(fileName, profileExtension)),
         type: remote ? "remote" : "local",
         remoteUrl: remote ? content.remotePath : undefined,
         autoUpdate: remote ? content.autoUpdate : false,
@@ -633,7 +645,7 @@ const handlers: Record<
     data: Uint8Array;
   } | null> {
     const result = await dialog.showOpenDialog({
-      filters: [{ name: "sing-box profile", extensions: ["json", "bpf"] }],
+      filters: [{ name: "sing-box profile", extensions: ["json", "nbpf", "bpf"] }],
       properties: ["openFile"],
     });
     if (result.canceled || result.filePaths.length === 0) {
@@ -668,14 +680,14 @@ const handlers: Record<
   async exportData(id: string): Promise<boolean> {
     const profile = findProfile(id);
     const result = await dialog.showSaveDialog({
-      defaultPath: `${profile.name}.bpf`,
-      filters: [{ name: "sing-box profile", extensions: ["bpf"] }],
+      defaultPath: `${profile.name}${PROFILE_FILE_EXTENSION}`,
+      filters: [{ name: "sing-box-nekolsd profile", extensions: ["nbpf"] }],
     });
     if (result.canceled || !result.filePath) {
       return false;
     }
     const data = await encodeProfileData(id);
-    const cachePath = await writeApplicationCacheFile("share", ".bpf", data);
+    const cachePath = await writeApplicationCacheFile("share", PROFILE_FILE_EXTENSION, data);
     await copyFile(cachePath, result.filePath);
     return true;
   },

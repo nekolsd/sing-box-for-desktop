@@ -41,8 +41,8 @@ if [ -d /run/systemd/system ]; then
     if systemctl cat polkit-agent-helper.socket >/dev/null 2>&1; then
         systemctl start polkit-agent-helper.socket
     fi
-    systemctl enable sing-box-daemon.service
-    systemctl restart sing-box-daemon.service
+    systemctl enable sing-box-daemon-nekolsd.service
+    systemctl restart sing-box-daemon-nekolsd.service
 else
     echo "systemd is not running, skipping the sing-box service startup"
 fi

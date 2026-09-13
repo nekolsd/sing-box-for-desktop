@@ -169,7 +169,7 @@ namespace Box.Installer
         public static string ReadDirectoryMarker(string path)
         {
             SafeFileHandle handle = CreateFile(
-                path + ":sing-box.installation-id",
+                path + ":sing-box-nekolsd.installation-id",
                 GenericRead,
                 ShareRead | ShareWrite | ShareDelete,
                 IntPtr.Zero,
@@ -197,7 +197,7 @@ namespace Box.Installer
         public static void WriteDirectoryMarker(string path, string value)
         {
             SafeFileHandle handle = CreateFile(
-                path + ":sing-box.installation-id",
+                path + ":sing-box-nekolsd.installation-id",
                 GenericWrite,
                 ShareRead,
                 IntPtr.Zero,
@@ -668,7 +668,7 @@ try {
         $commonApplicationData = [Environment]::GetFolderPath(
             [Environment+SpecialFolder]::CommonApplicationData
         )
-        $DaemonWorkingDirectory = Join-Path $commonApplicationData "sing-box-daemon"
+        $DaemonWorkingDirectory = Join-Path $commonApplicationData "sing-box-daemon-nekolsd"
     }
     $workingDirectory = [System.IO.Path]::GetFullPath($DaemonWorkingDirectory)
     if (Test-PathOverlap $InstallationDirectory $workingDirectory) {
@@ -821,7 +821,7 @@ try {
     $expectedIdentities = @{
         "S-1-5-18" = $false
         "S-1-5-32-544" = $false
-        (Get-ServiceSid "sing-box-daemon") = $false
+        (Get-ServiceSid "sing-box-daemon-nekolsd") = $false
     }
     $accessControl = Get-Acl -LiteralPath $workingDirectory
     $owner = $accessControl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value

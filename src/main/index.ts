@@ -78,7 +78,7 @@ function handleFatal(kind: string, error: unknown): never {
   const capture = captureRuntimeCrash(kind, error);
   const message = fatalErrorMessage(error, capture);
   try {
-    dialog.showErrorBox("sing-box", message);
+    dialog.showErrorBox("sing-box-nekolsd", message);
   } catch (dialogError) {
     process.stderr.write(`${message}\n\nFailed to show the error dialog: ${String(dialogError)}\n`);
   }
@@ -280,6 +280,12 @@ function showWindow(): BrowserWindow {
   return createWindow();
 }
 
+// The fork registers its own scheme so it can coexist with the original
+// client, but links shared by other sing-box clients still use sing-box://.
+const DEEP_LINK_SCHEME = "sing-box-nekolsd";
+const DEEP_LINK_PROTOCOLS = [`${DEEP_LINK_SCHEME}:`, "sing-box:"];
+const PROFILE_FILE_EXTENSIONS = [".nbpf", ".bpf"];
+
 function parseDeepLink(link: string): URL | null {
   let parsed: URL;
   try {
@@ -287,14 +293,14 @@ function parseDeepLink(link: string): URL | null {
   } catch {
     return null;
   }
-  if (parsed.protocol !== "sing-box:") {
+  if (!DEEP_LINK_PROTOCOLS.includes(parsed.protocol)) {
     return null;
   }
   if (parsed.host !== "") {
     return parsed;
   }
   try {
-    return new URL(`sing-box://${parsed.pathname}${parsed.search}${parsed.hash}`);
+    return new URL(`${parsed.protocol}//${parsed.pathname}${parsed.search}${parsed.hash}`);
   } catch {
     return null;
   }
@@ -406,20 +412,25 @@ function deliverTaildropSend(files: TaildropSendFile[]) {
 const queueTaildropSend = createTaildropSendBatcher(deliverTaildropSend);
 
 function deepLinkFromArguments(argv: string[]): string | undefined {
-  return argv.find((argument) => argument.startsWith("sing-box://"));
+  return argv.find((argument) =>
+    DEEP_LINK_PROTOCOLS.some((protocol) => argument.startsWith(`${protocol}//`)),
+  );
 }
 
 function profileFileFromArguments(argv: string[]): string | undefined {
-  return argv.find((argument) => argument.toLowerCase().endsWith(".bpf"));
+  return argv.find((argument) => {
+    const lowerCased = argument.toLowerCase();
+    return PROFILE_FILE_EXTENSIONS.some((extension) => lowerCased.endsWith(extension));
+  });
 }
 
 const singleInstanceLock = app.requestSingleInstanceLock();
 if (!singleInstanceLock) {
   app.quit();
 } else {
-  app.setAsDefaultProtocolClient("sing-box");
+  app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
   if (process.platform === "win32") {
-    app.setAppUserModelId("io.nekohasekai.sfw");
+    app.setAppUserModelId("io.nekolsd.sfw");
   }
 
   app.on("second-instance", (_event, argv, workingDirectory) => {

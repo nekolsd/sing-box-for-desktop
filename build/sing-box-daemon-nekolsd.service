@@ -1,0 +1,16 @@
+[Unit]
+Description=sing-box nekolsd Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+StateDirectory=sing-box-daemon-nekolsd
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/sing-box-nekolsd/resources/daemon/sing-box-daemon run --working-directory /var/lib/sing-box-daemon-nekolsd --socket /run/sing-box-nekolsd.socket
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

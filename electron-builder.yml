@@ -1,5 +1,5 @@
-productName: sing-box
-copyright: nekohasekai
+productName: sing-box-nekolsd
+copyright: nekolsd
 publish: null
 afterPack: scripts/afterPack.cjs
 afterSign: scripts/afterSign.cjs
@@ -38,12 +38,12 @@ extraResources:
   - from: resources/icons/512x512.png
     to: icons/512x512.png
 fileAssociations:
-  - ext: bpf
-    name: sing-box profile
-    description: sing-box profile
-    mimeType: application/x-sing-box-profile
+  - ext: nbpf
+    name: sing-box-nekolsd profile
+    description: sing-box-nekolsd profile
+    mimeType: application/x-sing-box-nekolsd-profile
 win:
-  appId: io.nekohasekai.sfw
+  appId: io.nekolsd.sfw
   forceCodeSigning: true
   icon: resources/icon.ico
   signtoolOptions:
@@ -91,18 +91,18 @@ nsis:
   include: build/installer.nsh
   artifactName: SFW-${version}-${env.SFW_ARCHITECTURE}.${ext}
 linux:
-  appId: io.nekohasekai.sfl
+  appId: io.nekolsd.sfl
   syncDesktopName: true
-  executableName: sing-box
+  executableName: sing-box-nekolsd
   icon: resources/icons
   synopsis: The universal proxy platform
   category: Network
-  maintainer: 世界 <i@sekai.icu>
-  vendor: SagerNet
+  maintainer: nekolsd <nekolsd@proton.me>
+  vendor: nekolsd
   protocols:
-    - name: sing-box
+    - name: sing-box-nekolsd
       schemes:
-        - sing-box
+        - sing-box-nekolsd
   extraResources:
     - from: resources/tray.png
       to: tray.png
@@ -112,7 +112,7 @@ linux:
       to: daemon/sing-box-daemon
   desktop:
     entry:
-      StartupWMClass: sing-box
+      StartupWMClass: sing-box-nekolsd
   target:
     - deb
     - rpm
@@ -127,9 +127,9 @@ deb:
     - --depends=pkexec
     - --deb-compression-level=9
     - --before-remove=build/linux-before-remove.sh
-    - build/sing-box-daemon.service=/usr/lib/systemd/system/sing-box-daemon.service
-    - build/io.nekohasekai.sfl.policy=/usr/share/polkit-1/actions/io.nekohasekai.sfl.policy
-    - build/io.nekohasekai.sfl.metainfo.xml=/usr/share/metainfo/io.nekohasekai.sfl.metainfo.xml
+    - build/sing-box-daemon-nekolsd.service=/usr/lib/systemd/system/sing-box-daemon-nekolsd.service
+    - build/io.nekolsd.sfl.policy=/usr/share/polkit-1/actions/io.nekolsd.sfl.policy
+    - build/io.nekolsd.sfl.metainfo.xml=/usr/share/metainfo/io.nekolsd.sfl.metainfo.xml
 rpm:
   packageCategory: Applications/Internet
   afterInstall: build/linux-after-install.sh
@@ -142,9 +142,9 @@ rpm:
     - --rpm-rpmbuild-define=use_source_date_epoch_as_buildtime 1
     - --rpm-rpmbuild-define=clamp_mtime_to_source_date_epoch 1
     - --before-remove=build/linux-before-remove.sh
-    - build/sing-box-daemon.service=/usr/lib/systemd/system/sing-box-daemon.service
-    - build/io.nekohasekai.sfl.policy=/usr/share/polkit-1/actions/io.nekohasekai.sfl.policy
-    - build/io.nekohasekai.sfl.metainfo.xml=/usr/share/metainfo/io.nekohasekai.sfl.metainfo.xml
+    - build/sing-box-daemon-nekolsd.service=/usr/lib/systemd/system/sing-box-daemon-nekolsd.service
+    - build/io.nekolsd.sfl.policy=/usr/share/polkit-1/actions/io.nekolsd.sfl.policy
+    - build/io.nekolsd.sfl.metainfo.xml=/usr/share/metainfo/io.nekolsd.sfl.metainfo.xml
 pacman:
   artifactName: SFL-${version}-${arch}.pkg.tar.zst
   packageCategory: network
@@ -170,6 +170,6 @@ pacman:
     - --description=Linux client for sing-box, The universal proxy platform
     - --before-remove=build/linux-before-remove-pacman.sh
     - --after-upgrade=build/linux-after-install-pacman.sh
-    - build/sing-box-daemon.service=/usr/lib/systemd/system/sing-box-daemon.service
-    - build/io.nekohasekai.sfl.policy=/usr/share/polkit-1/actions/io.nekohasekai.sfl.policy
-    - build/io.nekohasekai.sfl.metainfo.xml=/usr/share/metainfo/io.nekohasekai.sfl.metainfo.xml
+    - build/sing-box-daemon-nekolsd.service=/usr/lib/systemd/system/sing-box-daemon-nekolsd.service
+    - build/io.nekolsd.sfl.policy=/usr/share/polkit-1/actions/io.nekolsd.sfl.policy
+    - build/io.nekolsd.sfl.metainfo.xml=/usr/share/metainfo/io.nekolsd.sfl.metainfo.xml

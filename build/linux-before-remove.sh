@@ -3,7 +3,7 @@
 case "$1" in
     remove | 0)
         if [ -d /run/systemd/system ]; then
-            systemctl disable --now sing-box-daemon.service || true
+            systemctl disable --now sing-box-daemon-nekolsd.service || true
         fi
         ;;
 esac

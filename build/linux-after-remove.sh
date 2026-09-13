@@ -20,8 +20,8 @@ case "$1" in
 
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload || true
-            systemctl reset-failed sing-box-daemon.service || true
+            systemctl reset-failed sing-box-daemon-nekolsd.service || true
         fi
-        rm -f /run/sing-box.socket
+        rm -f /run/sing-box-nekolsd.socket
         ;;
 esac
