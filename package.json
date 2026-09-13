@@ -38,6 +38,7 @@
     "package:linux:deb": "tsx scripts/package.ts linux deb",
     "package:linux:rpm": "tsx scripts/package.ts linux rpm",
     "package:linux:pacman": "tsx scripts/package.ts linux pacman",
+    "check:installer": "node scripts/checkInstaller.cjs",
     "postinstall": "electron-builder install-app-deps",
     "typecheck": "tsc -b"
   },
