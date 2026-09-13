@@ -1,0 +1,338 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      sing_box_ref:
+        description: "nekolsd/sing-box tag, branch or commit to build against"
+        required: true
+        type: string
+      platform:
+        description: "Platforms to build (manual runs upload artifacts only)"
+        type: choice
+        default: All
+        options:
+          - All
+          - Windows
+          - Linux
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Use the desktop pin for dashboard too; its pnpm 11.13.0 pin is broken.
+  pnpm_config_pm_on_fail: "warn"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      core_commit: ${{ steps.metadata.outputs.core_commit }}
+      version: ${{ steps.metadata.outputs.version }}
+      version_code: ${{ steps.metadata.outputs.version_code }}
+      go_version: ${{ steps.metadata.outputs.go_version }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: sing-box-for-desktop
+      - uses: actions/checkout@v6
+        with:
+          repository: nekolsd/sing-box
+          ref: ${{ inputs.sing_box_ref || github.ref_name }}
+          path: sing-box
+          fetch-depth: 0
+      - name: Resolve build metadata
+        id: metadata
+        working-directory: sing-box-for-desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(jq -er '.version' version.json)
+          version_code=$(jq -er '.version_code' version.json)
+          go_version=$(jq -er '.go_version' version.json)
+          if [[ ! "$version_code" =~ ^[1-9][0-9]*$ ]]; then
+            echo "version.json must contain a positive integer version_code: $version_code" >&2
+            exit 1
+          fi
+          # Fork versions are "<upstream>-nekolsd" or "<upstream>-nekolsd-<n>";
+          # the upstream part decides whether the release is a prerelease.
+          if [[ ! "$version" =~ ^(.+)-nekolsd(-[1-9][0-9]*)?$ ]]; then
+            echo "version.json must use the <upstream>-nekolsd[-<n>] naming: $version" >&2
+            exit 1
+          fi
+          base_version=${BASH_REMATCH[1]}
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag must match version.json: v$version" >&2
+            exit 1
+          fi
+          core_commit=$(git -C ../sing-box rev-parse HEAD)
+          git -C ../sing-box describe --tags
+          {
+            echo "version=$version"
+            echo "version_code=$version_code"
+            echo "go_version=${go_version#go}"
+            echo "core_commit=$core_commit"
+            if [[ "$base_version" == *-* ]]; then
+              echo "prerelease=true"
+            else
+              echo "prerelease=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: Windows, runner: windows-latest, arch: x64, go_arch: amd64, rust_target: x86_64-pc-windows-msvc }
+          - { platform: Windows, runner: windows-latest, arch: arm64, go_arch: arm64, rust_target: aarch64-pc-windows-msvc }
+          - { platform: Linux, runner: ubuntu-26.04, arch: x64, go_arch: amd64 }
+          - { platform: Linux, runner: ubuntu-26.04, arch: arm64, go_arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Select platform
+        id: selected
+        shell: bash
+        env:
+          REQUESTED_PLATFORM: ${{ inputs.platform || 'All' }}
+          BUILD_PLATFORM: ${{ matrix.platform }}
+        run: |
+          if [[ "$REQUESTED_PLATFORM" == All || "$REQUESTED_PLATFORM" == "$BUILD_PLATFORM" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v6
+        if: steps.selected.outputs.enabled == 'true'
+        with:
+          path: sing-box-for-desktop
+          submodules: recursive
+      - uses: actions/checkout@v6
+        if: steps.selected.outputs.enabled == 'true'
+        with:
+          repository: nekolsd/sing-box
+          ref: ${{ needs.prepare.outputs.core_commit }}
+          path: sing-box
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        if: steps.selected.outputs.enabled == 'true'
+        with:
+          go-version: ${{ needs.prepare.outputs.go_version }}
+          cache-dependency-path: sing-box/go.sum
+      - uses: dtolnay/rust-toolchain@1.88.0
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Windows'
+        with:
+          targets: ${{ matrix.rust_target }}
+      - uses: pnpm/action-setup@v4
+        if: steps.selected.outputs.enabled == 'true'
+        with:
+          package_json_file: sing-box-for-desktop/package.json
+      - uses: actions/setup-node@v4
+        if: steps.selected.outputs.enabled == 'true'
+        with:
+          node-version-file: sing-box-for-desktop/package.json
+          cache: pnpm
+          cache-dependency-path: |
+            sing-box-for-desktop/pnpm-lock.yaml
+            sing-box-for-desktop/dashboard/pnpm-lock.yaml
+      - name: Setup Windows signing
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATES_P12: ${{ secrets.WINDOWS_CERTIFICATES_P12 }}
+          WINDOWS_P12_PASSWORD: ${{ secrets.WINDOWS_P12_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATES_P12) -or [string]::IsNullOrEmpty($env:WINDOWS_P12_PASSWORD)) {
+            throw "Configure WINDOWS_CERTIFICATES_P12 and WINDOWS_P12_PASSWORD repository secrets."
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "windows-signing.p12"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATES_P12))
+          @{
+            windows = @{
+              certificateFile = $certificatePath
+              certificatePassword = $env:WINDOWS_P12_PASSWORD
+            }
+          } | ConvertTo-Json -Depth 3 | Set-Content -Encoding utf8NoBOM sing-box-for-desktop/signing.local.json
+      - name: Setup Linux Chromium toolchain
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Linux'
+        shell: bash
+        working-directory: sing-box
+        env:
+          GO_ARCH: ${{ matrix.go_arch }}
+        run: |
+          set -euo pipefail
+          CRONET_GO_VERSION=$(cat .github/CRONET_GO_VERSION)
+          git init "$RUNNER_TEMP/cronet-go"
+          git -C "$RUNNER_TEMP/cronet-go" remote add origin https://github.com/sagernet/cronet-go.git
+          git -C "$RUNNER_TEMP/cronet-go" fetch --depth=1 origin "$CRONET_GO_VERSION"
+          git -C "$RUNNER_TEMP/cronet-go" checkout FETCH_HEAD
+          git -C "$RUNNER_TEMP/cronet-go" submodule update --init --recursive --depth=1
+          cd "$RUNNER_TEMP/cronet-go"
+          rm -f naiveproxy/src/build/linux/sysroot_scripts/keyring.gpg
+          GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
+          go run ./cmd/build-naive --target="linux/$GO_ARCH" download-toolchain
+          go run ./cmd/build-naive --target="linux/$GO_ARCH" env >> "$GITHUB_ENV"
+      - name: Setup Linux package signing
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Linux'
+        shell: bash
+        env:
+          GPG_KEY: ${{ secrets.GPG_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          : "${GPG_KEY:?Configure GPG_KEY repository secret}"
+          : "${GPG_KEY_ID:?Configure GPG_KEY_ID repository secret}"
+          sudo apt-get update
+          sudo apt-get install -y debsigs libarchive-tools rpm zstd
+          SIGNING_GNUPG_HOME="$RUNNER_TEMP/package-signing-gnupg"
+          SIGNING_PASSPHRASE_FILE="$RUNNER_TEMP/package-signing-passphrase"
+          mkdir -m 700 "$SIGNING_GNUPG_HOME"
+          printf '%s' "$GPG_PASSPHRASE" > "$SIGNING_PASSPHRASE_FILE"
+          chmod 600 "$SIGNING_PASSPHRASE_FILE"
+          {
+            echo "GNUPGHOME=$SIGNING_GNUPG_HOME"
+            echo "SIGNING_PASSPHRASE_FILE=$SIGNING_PASSPHRASE_FILE"
+          } >> "$GITHUB_ENV"
+          printf '%s' "$GPG_KEY" | gpg --homedir "$SIGNING_GNUPG_HOME" --batch \
+            --pinentry-mode loopback --passphrase-file "$SIGNING_PASSPHRASE_FILE" --import
+          cat > "$HOME/.rpmmacros" <<EOF
+          %_rpmformat 4
+          %_gpg_name $GPG_KEY_ID
+          %_gpg_sign_cmd_extra_args --pinentry-mode loopback --passphrase-file $SIGNING_PASSPHRASE_FILE
+          EOF
+      - name: Install dependencies and check interfaces
+        if: steps.selected.outputs.enabled == 'true'
+        shell: bash
+        working-directory: sing-box-for-desktop
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm -C dashboard install --frozen-lockfile
+          pnpm -C dashboard generate
+          pnpm generate
+          pnpm typecheck
+      - name: Build Windows installer
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Windows'
+        working-directory: sing-box-for-desktop
+        shell: pwsh
+        env:
+          DESKTOP_ARCH: ${{ matrix.arch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pnpm package:win -- $env:DESKTOP_ARCH
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $artifacts = @(Get-ChildItem release/SFW-*.exe -File)
+          if ($artifacts.Count -ne 1) { throw "Expected exactly one Windows installer" }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $artifacts.FullName dist
+      - name: Test Windows installation and service
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Windows' && matrix.arch == 'x64'
+        timeout-minutes: 10
+        shell: pwsh
+        working-directory: sing-box-for-desktop
+        run: |
+          $ErrorActionPreference = "Stop"
+          Push-Location ../sing-box
+          try {
+            go test -ldflags "-checklinkname=0" ./experimental/boxdd
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
+          $installer = Get-ChildItem dist/SFW-*.exe
+          ./scripts/test-windows-install.ps1 -InstallerPath $installer.FullName
+      - name: Build and sign Linux packages
+        if: steps.selected.outputs.enabled == 'true' && matrix.platform == 'Linux'
+        working-directory: sing-box-for-desktop
+        shell: bash
+        env:
+          # Build the host Go helper without CGO. build_boxdd enables CGO again
+          # for the target daemon when the Chromium CC is configured.
+          CGO_ENABLED: "0"
+          DESKTOP_ARCH: ${{ matrix.arch }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm package:linux -- deb rpm pacman "$DESKTOP_ARCH"
+          debsigs --sign=origin -k "$GPG_KEY_ID" \
+            --gpgopts "--batch --pinentry-mode loopback --passphrase-file $SIGNING_PASSPHRASE_FILE" \
+            release/SFL-*.deb
+          rpmsign --addsign release/SFL-*.rpm
+          shopt -s nullglob
+          artifacts=(release/SFL-*.deb release/SFL-*.rpm release/SFL-*.pkg.tar.zst)
+          if (( ${#artifacts[@]} != 3 )); then
+            echo "Expected exactly three Linux packages" >&2
+            exit 1
+          fi
+          mkdir -p dist
+          cp "${artifacts[@]}" dist/
+      - name: Record sources and checksums
+        if: steps.selected.outputs.enabled == 'true'
+        working-directory: sing-box-for-desktop
+        shell: bash
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          metadata="sources-$BUILD_PLATFORM-$BUILD_ARCH.txt"
+          {
+            echo "desktop=$(git rev-parse HEAD)"
+            echo "dashboard=$(git -C dashboard rev-parse HEAD)"
+            echo "core=$(git -C ../sing-box rev-parse HEAD)"
+            cat version.json
+          } > "dist/$metadata"
+          cd dist
+          sha256sum -- * > "SHA256SUMS-$BUILD_PLATFORM-$BUILD_ARCH.txt"
+      - uses: actions/upload-artifact@v4
+        if: steps.selected.outputs.enabled == 'true'
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: sing-box-for-desktop/dist/
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always() && steps.selected.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          rm -f sing-box-for-desktop/signing.local.json "$RUNNER_TEMP/windows-signing.p12" "$RUNNER_TEMP/package-signing-passphrase"
+          rm -rf "$RUNNER_TEMP/package-signing-gnupg"
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+      - name: Write version metadata
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          # Read by the in-app updater to order releases.
+          jq -n --arg name "$VERSION" --argjson code "$VERSION_CODE" \
+            '{version_code: $code, version_name: $name}' > dist/SFW-version-metadata.json
+          cat dist/SFW-version-metadata.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Desktop ${{ needs.prepare.outputs.version }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
