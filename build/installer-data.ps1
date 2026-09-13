@@ -13,6 +13,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell inherits PSModulePath from a PowerShell 7 parent process
+# and then fails to load its own built-in modules (Get-Acl and friends), so
+# use only the module directories that belong to this PowerShell.
+$env:PSModulePath = (Join-Path $PSHOME "Modules") + ";" +
+    (Join-Path $env:ProgramFiles "WindowsPowerShell\Modules")
 $reparsePoint = [System.IO.FileAttributes]::ReparsePoint
 
 function Initialize-TransitionStateStorage() {

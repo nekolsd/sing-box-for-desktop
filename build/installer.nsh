@@ -11,6 +11,24 @@ SetFont "Segoe UI" 9
   !include StrContains.nsh
   !define DO_NOT_CREATE_DESKTOP_SHORTCUT
 
+  Var silentLogHandle
+
+  ; Silent installations show no details, so record them in a log file that
+  ; support requests and CI can read back.
+  Var silentLogText
+  ; Usage: StrCpy $silentLogText "message" followed by !insertmacro silentLog
+  !macro silentLog
+    ${if} ${Silent}
+      ClearErrors
+      FileOpen $silentLogHandle "$TEMP\sing-box-nekolsd-installer.log" a
+      ${ifNot} ${Errors}
+        FileSeek $silentLogHandle 0 END
+        FileWrite $silentLogHandle "$silentLogText$\r$\n"
+        FileClose $silentLogHandle
+      ${endif}
+    ${endif}
+  !macroend
+
   Var allowUnsafeInstallation
   Var installationValidationAllowsUnsafe
   Var installationValidationDialog
@@ -769,6 +787,8 @@ FunctionEnd
 !macroend
 
 !macro customInit
+  StrCpy $silentLogText "init: version ${VERSION} instdir $INSTDIR"
+  !insertmacro silentLog
   !insertmacro confirmNativeArchitecture
   !insertmacro setInstallationLayoutRegistryView
   StrCpy $allowUnsafeInstallation 0
@@ -862,9 +882,13 @@ FunctionEnd
     Pop $0
     ${if} $0 != 0
       StrCpy $1 $0
+      StrCpy $silentLogText "abort: $(dataMigrationCleanupFailed)"
+      !insertmacro silentLog
       Abort "$(dataMigrationCleanupFailed)"
     ${endif}
   ${endif}
+  StrCpy $silentLogText "init done: existing $hasExistingInstallation layout $hasInstallationLayout appdata $applicationDataDirectory daemondata $daemonDataDirectory"
+  !insertmacro silentLog
 !macroend
 
 !macro customWelcomePage
@@ -872,6 +896,8 @@ FunctionEnd
 
   Function showInstallationActionPage
     ${if} ${isUpdated}
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
     Call restoreInstallerNavigation
@@ -880,6 +906,8 @@ FunctionEnd
     nsDialogs::Create 1018
     Pop $installationActionDialog
     ${if} $installationActionDialog == error
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
 
@@ -948,6 +976,8 @@ FunctionEnd
   Function skipAcceptedLicensePage
     ${if} ${isUpdated}
     ${orif} $hasExistingInstallation == 1
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
   FunctionEnd
@@ -1032,9 +1062,13 @@ FunctionEnd
   Function showDataDirectoriesPage
     ${if} $hasExistingInstallation == 1
     ${andif} $reinstallExistingInstallation == 0
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${elseif} $hasExistingInstallation == 0
     ${andif} $customInstallation == 0
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
     Call restoreInstallerNavigation
@@ -1042,6 +1076,8 @@ FunctionEnd
     nsDialogs::Create 1018
     Pop $dataDirectoriesDialog
     ${if} $dataDirectoriesDialog == error
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
 
@@ -1105,6 +1141,8 @@ FunctionEnd
   Function leaveDataDirectoriesPage
     ${NSD_GetText} $installationDirectoryInput $INSTDIR
     ${if} $INSTDIR == ""
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
     ${NSD_GetState} $userIndependentApplicationDataCheckbox $userIndependentApplicationData
@@ -1115,6 +1153,8 @@ FunctionEnd
       ${if} $applicationDataDirectory == ""
         StrCpy $0 ""
         MessageBox MB_OK|MB_ICONSTOP "$(invalidApplicationDataDirectory)"
+        StrCpy $silentLogText "abort"
+        !insertmacro silentLog
         Abort
       ${endif}
       StrCpy $fixedApplicationDataDirectory $applicationDataDirectory
@@ -1123,6 +1163,8 @@ FunctionEnd
     ${if} $daemonDataDirectory == ""
       StrCpy $0 ""
       MessageBox MB_OK|MB_ICONSTOP "$(invalidDaemonDataDirectory)"
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
     ${if} $hasInstallationLayout == 1
@@ -1200,6 +1242,8 @@ FunctionEnd
     nsDialogs::Create 1018
     Pop $installationValidationDialog
     ${if} $installationValidationDialog == error
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
 
@@ -1343,12 +1387,16 @@ FunctionEnd
   Function showUnsafeInstallationConfirmationPage
     ${if} $installationValidationAllowsUnsafe != 1
     ${orif} $unsafeInstallationConfirmationRequested != 1
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
     !insertmacro MUI_HEADER_TEXT "$(unsafeInstallationConfirmationTitle)" "$(unsafeInstallationConfirmationSubtitle)"
     nsDialogs::Create 1018
     Pop $installationValidationDialog
     ${if} $installationValidationDialog == error
+      StrCpy $silentLogText "abort"
+      !insertmacro silentLog
       Abort
     ${endif}
 
@@ -1458,6 +1506,8 @@ FunctionEnd
     StrCpy $allowUnsafeInstallation 1
     !insertmacro showPendingInstallerOperation "$(checkingInstallationLocations)"
     !insertmacro executeInstallationPreflight "-AllowUnsafeInstallationDirectory"
+    StrCpy $silentLogText "preflight -AllowUnsafeInstallationDirectory result $1: $0"
+    !insertmacro silentLog
     ${if} $1 == 0
       Call advanceInstallationDirectoryValidationPage
     ${elseif} $1 == 20
@@ -1491,6 +1541,8 @@ FunctionEnd
     Pop $0
     !insertmacro showPendingInstallerOperation "$(repairingInstallationPermissions)"
     !insertmacro executeInstallationPreflight "-RepairPathAncestors"
+    StrCpy $silentLogText "preflight -RepairPathAncestors result $1: $0"
+    !insertmacro silentLog
     ${if} $1 == 0
       StrCpy $allowUnsafeInstallation 0
       Call advanceInstallationDirectoryValidationPage
@@ -1549,6 +1601,8 @@ FunctionEnd
 
 !macro customInstallBeforeCheckAppRunning
   SetDetailsPrint both
+  StrCpy $silentLogText "$(checkingRunningApplication)"
+  !insertmacro silentLog
   DetailPrint "$(checkingRunningApplication)"
 !macroend
 
@@ -1559,6 +1613,8 @@ FunctionEnd
     StrCpy $INSTDIR "$INSTDIR\${APP_FILENAME}"
   ${endif}
   ${if} $resetWorkingDirectory == 1
+    StrCpy $silentLogText "$(resettingWorkingDirectory)"
+    !insertmacro silentLog
     DetailPrint "$(resettingWorkingDirectory)"
     ${if} $allowUnsafeInstallation == 1
       nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-preflight.ps1" -InstallationDirectory "$INSTDIR" -ApplicationDataDirectory "$applicationDataDirectory" -DaemonWorkingDirectory "$daemonDataDirectory" -InstallationID "$installationID" -AllowUnsafeInstallationDirectory -ResetWorkingDirectory'
@@ -1567,26 +1623,38 @@ FunctionEnd
     ${endif}
     Pop $1
     ${if} $1 != 0
+      StrCpy $silentLogText "abort: $(resetWorkingDirectoryFailed)"
+      !insertmacro silentLog
       Abort "$(resetWorkingDirectoryFailed)"
     ${endif}
   ${endif}
   validateInstallationDirectory:
+  StrCpy $silentLogText "$(checkingInstallationLocations)"
+  !insertmacro silentLog
   DetailPrint "$(checkingInstallationLocations)"
   ${if} $allowUnsafeInstallation == 1
     !insertmacro executeInstallationPreflight "-AllowUnsafeInstallationDirectory"
+    StrCpy $silentLogText "preflight -AllowUnsafeInstallationDirectory result $1: $0"
+    !insertmacro silentLog
   ${else}
     !insertmacro executeInstallationPreflight ""
+    StrCpy $silentLogText "preflight  result $1: $0"
+    !insertmacro silentLog
   ${endif}
   ${if} $1 == 13
   ${orif} $1 == 17
   ${orif} $1 == 18
     ${if} ${Silent}
       !insertmacro executeInstallationPreflight "-RepairPathAncestors"
+      StrCpy $silentLogText "preflight -RepairPathAncestors result $1: $0"
+      !insertmacro silentLog
       ${if} $1 == 0
         Goto validateInstallationDirectory
       ${elseif} $1 != 20
       ${andif} $1 != 21
       ${andif} $1 != 22
+        StrCpy $silentLogText "abort: $(repairInstallationAncestorFailed)"
+        !insertmacro silentLog
         Abort "$(repairInstallationAncestorFailed)"
       ${endif}
     ${endif}
@@ -1595,10 +1663,14 @@ FunctionEnd
   ${orif} $1 == 21
   ${orif} $1 == 22
     ${if} ${Silent}
+      StrCpy $silentLogText "$(resettingWorkingDirectory)"
+      !insertmacro silentLog
       DetailPrint "$(resettingWorkingDirectory)"
       nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-preflight.ps1" -InstallationDirectory "$INSTDIR" -ApplicationDataDirectory "$applicationDataDirectory" -DaemonWorkingDirectory "$daemonDataDirectory" -InstallationID "$installationID" -ResetWorkingDirectory'
       Pop $1
       ${if} $1 != 0
+        StrCpy $silentLogText "abort: $(resetWorkingDirectoryFailed)"
+        !insertmacro silentLog
         Abort "$(resetWorkingDirectoryFailed)"
       ${endif}
       Goto validateInstallationDirectory
@@ -1606,24 +1678,38 @@ FunctionEnd
   ${endif}
   ${if} $1 != 0
     Call setInstallationValidationMessage
+    StrCpy $silentLogText "abort: $installationValidationMessage"
+    !insertmacro silentLog
     Abort "$installationValidationMessage"
   ${endif}
   ${if} $applicationDataDirectory != ""
+    StrCpy $silentLogText "$(preparingApplicationDataDirectory)"
+    !insertmacro silentLog
     DetailPrint "$(preparingApplicationDataDirectory)"
     ${if} $allowUnsafeInstallation == 1
       !insertmacro executeInstallationPreflight "-AllowUnsafeInstallationDirectory -PrepareApplicationDataDirectory"
+      StrCpy $silentLogText "preflight -AllowUnsafeInstallationDirectory -PrepareApplicationDataDirectory result $1: $0"
+      !insertmacro silentLog
     ${else}
       !insertmacro executeInstallationPreflight "-PrepareApplicationDataDirectory"
+      StrCpy $silentLogText "preflight -PrepareApplicationDataDirectory result $1: $0"
+      !insertmacro silentLog
     ${endif}
     ${if} $1 != 0
       Call setInstallationValidationMessage
+      StrCpy $silentLogText "abort: $installationValidationMessage"
+      !insertmacro silentLog
       Abort "$installationValidationMessage"
     ${endif}
   ${endif}
+  StrCpy $silentLogText "$(stoppingService)"
+  !insertmacro silentLog
   DetailPrint "$(stoppingService)"
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "if (Get-Service -Name sing-box-daemon-nekolsd -ErrorAction SilentlyContinue) { Stop-Service -Name sing-box-daemon-nekolsd -Force -ErrorAction Stop; (Get-Service -Name sing-box-daemon-nekolsd).WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(10)) }"'
   Pop $1
   ${if} $1 != 0
+    StrCpy $silentLogText "abort: $(stopServiceFailed)"
+    !insertmacro silentLog
     Abort "$(stopServiceFailed)"
   ${endif}
   StrCpy $2 0
@@ -1635,12 +1721,20 @@ FunctionEnd
   ${endif}
   ${if} $2 == 1
   ${andif} $migrateExistingData == ${BST_CHECKED}
+    StrCpy $silentLogText "$(migratingExistingData)"
+    !insertmacro silentLog
     DetailPrint "$(migratingExistingData)"
     !insertmacro executeDataTransition "Prepare"
+    StrCpy $silentLogText "data transition Prepare result $1: $0"
+    !insertmacro silentLog
     ${if} $1 != 0
       StrCpy $2 $1
       !insertmacro executeDataTransition "Rollback"
+      StrCpy $silentLogText "data transition Rollback result $1: $0"
+      !insertmacro silentLog
       StrCpy $1 $2
+      StrCpy $silentLogText "abort: $(dataMigrationFailed)"
+      !insertmacro silentLog
       Abort "$(dataMigrationFailed)"
     ${endif}
     StrCpy $dataMigrationPrepared 1
@@ -1649,31 +1743,47 @@ FunctionEnd
 
 !macro customInstallBeforeRemovingPreviousVersion
   ${if} $hasExistingInstallation == 1
+    StrCpy $silentLogText "$(removingPreviousVersion)"
+    !insertmacro silentLog
     DetailPrint "$(removingPreviousVersion)"
   ${endif}
 !macroend
 
 !macro customInstallBeforeApplicationFiles
+  StrCpy $silentLogText "$(copyingApplicationFiles)"
+  !insertmacro silentLog
   DetailPrint "$(copyingApplicationFiles)"
 !macroend
 
 !macro customUnInstallCheck
   ${if} $R0 != 0
+    StrCpy $silentLogText "$(previousUninstallerFailed)"
+    !insertmacro silentLog
     DetailPrint "$(previousUninstallerFailed)"
   ${endif}
 !macroend
 
 !macro customInstall
+  StrCpy $silentLogText "custom install: instdir $INSTDIR"
+  !insertmacro silentLog
   !insertmacro daemonExecutable $0
   SetDetailsPrint both
+  StrCpy $silentLogText "$(registeringService)"
+  !insertmacro silentLog
   DetailPrint "$(registeringService)"
   ${if} $allowUnsafeInstallation == 1
     !insertmacro executeDaemonServiceCommand "install" "-AllowUnsafeInstallationDirectoryPermissions" $1 $3
+    StrCpy $silentLogText "service install result $1: $3"
+    !insertmacro silentLog
   ${else}
     !insertmacro executeDaemonServiceCommand "install" "" $1 $3
+    StrCpy $silentLogText "service install result $1: $3"
+    !insertmacro silentLog
   ${endif}
   ${if} $1 != 0
     StrCpy $5 $1
+    StrCpy $silentLogText "$(rollingBackInstallation)"
+    !insertmacro silentLog
     DetailPrint "$(rollingBackInstallation)"
     StrCpy $2 -1
     ClearErrors
@@ -1682,10 +1792,16 @@ FunctionEnd
       StrCpy $2 -1
     ${endif}
     !insertmacro executeDataTransition "Rollback"
+    StrCpy $silentLogText "data transition Rollback result $1: $0"
+    !insertmacro silentLog
     StrCpy $1 $5
     ${if} $2 == 0
+      StrCpy $silentLogText "abort: $(registerServiceFailedRolledBack)"
+      !insertmacro silentLog
       Abort "$(registerServiceFailedRolledBack)"
     ${else}
+      StrCpy $silentLogText "abort: $(registerServiceFailedRollbackFailed)"
+      !insertmacro silentLog
       Abort "$(registerServiceFailedRollbackFailed)"
     ${endif}
   ${endif}
@@ -1701,9 +1817,13 @@ FunctionEnd
   !insertmacro restoreInstallerRegistryView
   !insertmacro registerTaildropVerb
   ${if} $dataMigrationPrepared == 1
+    StrCpy $silentLogText "$(completingDataMigration)"
+    !insertmacro silentLog
     DetailPrint "$(completingDataMigration)"
   ${endif}
   !insertmacro executeDataTransition "Commit"
+  StrCpy $silentLogText "data transition Commit result $1: $0"
+  !insertmacro silentLog
   ${if} $1 != 0
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(dataMigrationCleanupFailed)"
   ${endif}
